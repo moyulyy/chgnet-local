@@ -1,0 +1,44 @@
+# ChgNet Studio runtime dependencies.
+#
+# The GUI itself only needs PySide6 / numpy / ase.  These are already provided
+# by the recommended conda environment (D:\miniconda3\envs\chem_env); they are
+# listed here in case the GUI is installed into a separate environment.
+#
+#     pip install -r requirements.txt
+#
+PySide6>=6.6
+numpy>=1.24
+ase>=3.22
+
+# ===========================================================================
+# Calculation engine
+# ===========================================================================
+# Only needed in the interpreter that actually runs the ChgNetCalculater
+# scripts (i.e. chem_env).  The GUI process never imports torch/chgnet.
+#
+# !!! IMPORTANT: torch MUST be the CUDA build, never the CPU-only build !!!
+#
+# All calculators are hard-wired to CUDA, so a CPU-only torch makes every task
+# fail (or silently fall back to CPU and run extremely slowly).  Plain
+# `pip install torch` on Windows commonly installs the CPU wheel.  Install the
+# CUDA wheel from the PyTorch index that matches your driver instead, e.g.
+# CUDA 12.1:
+#
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Other CUDA lines: replace cu121 with cu118 (CUDA 11.8), cu124 (CUDA 12.4),
+# etc.  See https://pytorch.org/get-started/locally/ for the current command.
+#
+# Then verify (must print True):
+#
+#     python -c "import torch; print(torch.cuda.is_available())"
+#
+# If it prints False, uninstall the CPU build and reinstall from the CUDA index:
+#
+#     pip uninstall -y torch
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# ---- engine packages (install after torch) --------------------------------
+# chgnet>=0.4
+# pymatgen
+# matplotlib

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Viewer</title>
+<style>
+  :root{
+    --bar:#ffffff;
+    --sep:rgba(60,60,67,0.14);
+    --text:#1c1c1e;
+    --muted:#8e8e93;
+    --blue:#007aff;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;width:100%;overflow:hidden;background:#ffffff;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text);-webkit-user-select:none;user-select:none;}
+  #viewer{position:absolute;inset:0;}
+
+  #overlay{position:absolute;inset:0;cursor:crosshair;display:none;z-index:20;}
+  #rect{position:absolute;border:1.5px solid var(--blue);background:rgba(0,122,255,0.13);
+    border-radius:5px;display:none;pointer-events:none;z-index:21;}
+
+  .pill{background:var(--bar);border:1px solid var(--sep);border-radius:11px;}
+
+  #hint{position:absolute;left:12px;top:12px;z-index:15;padding:6px 11px;font-size:12px;
+    color:var(--muted);pointer-events:none;max-width:72%;}
+  #hint b{color:var(--text);font-weight:600;}
+
+  #legend{position:absolute;right:12px;top:12px;z-index:15;padding:6px 11px;font-size:12px;
+    color:var(--muted);display:none;align-items:center;gap:8px;pointer-events:none;}
+  .dot{width:12px;height:12px;border-radius:50%;border:1.5px solid #111;
+    background:repeating-linear-gradient(45deg,#000 0 2px,#fff 2px 4px);display:inline-block;}
+
+  #controls{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:25;
+    display:flex;align-items:center;gap:10px;padding:7px 13px;opacity:0;
+    transition:opacity .2s;pointer-events:none;}
+  #controls.show{opacity:1;pointer-events:auto;}
+
+  #error{position:absolute;inset:0;z-index:40;display:none;align-items:center;
+    justify-content:center;text-align:center;padding:24px;color:var(--muted);
+    font-size:13px;line-height:1.7;background:#ffffff;}
+
+  button{appearance:none;border:none;background:transparent;color:var(--blue);font-size:14px;
+    font-weight:600;cursor:pointer;padding:3px 7px;border-radius:8px;font-family:inherit;}
+  button:hover{background:rgba(0,122,255,0.10);}
+  #play{font-size:15px;min-width:28px;}
+
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;
+    background:rgba(60,60,67,0.18);outline:none;width:180px;cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:15px;
+    height:15px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,0.10);}
+  #framelabel{font-size:12px;color:var(--muted);min-width:58px;text-align:center;
+    font-variant-numeric:tabular-nums;}
+</style>
+<script src="../3Dmol-min.js"></script>
+<script>
+  if (typeof $3Dmol === 'undefined') {
+    document.write('<script src="https://3Dmol.org/build/3Dmol-min.js"><\/script>');
+  }
+</script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="overlay"></div>
+  <div id="rect"></div>
+
+  <div id="hint" class="pill">拖拽旋转 · 滚轮缩放 · 双击复位</div>
+  <div id="legend" class="pill"><span class="dot"></span>已固定原子</div>
+
+  <div id="controls" class="pill">
+    <button id="play" title="播放 / 暂停">▶</button>
+    <input type="range" id="slider" min="0" max="0" value="0" step="1" />
+    <span id="framelabel">0 / 0</span>
+  </div>
+
+  <div id="error"></div>
+
+<script>
+"use strict";
+
+var viewer = null;
+var bridge = null;
+var pending = [];
+var bridgeReady = false;
+
+var frames = [];
+var cellMatrix = null;
+var fixedSet = new Set();
+var current = 0;
+var playing = false;
+var playTimer = null;
+var mode = "rotate";
+
+var FIXED_RADIUS = 0.72;
+
+/* --------------------------------------------------------------- bridge */
+function callBridge(fn, arg) {
+  var payload = JSON.stringify(arg);
+  if (bridge && bridgeReady) {
+    try { bridge[fn](payload); } catch (e) {}
+  } else {
+    pending.push([fn, payload]);
+  }
+}
+
+if (typeof QWebChannel !== 'undefined') {
+  new QWebChannel(qt.webChannelTransport, function (channel) {
+    bridge = channel.objects.bridge;
+    bridgeReady = true;
+    while (pending.length) {
+      var item = pending.shift();
+      try { bridge[item[0]](item[1]); } catch (e) {}
+    }
+    callBridge('ready', 'ok');
+  });
+}
+
+/* -------------------------------------------------------------- helpers */
+function showError(message) {
+  var el = document.getElementById('error');
+  el.innerHTML = message;
+  el.style.display = 'flex';
+}
+
+function xyzOf(frame) {
+  var n = frame.symbols.length;
+  var header = 'Properties=species:S:1:pos:R:3';
+  if (cellMatrix) {
+    var flat = [];
+    for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) flat.push(cellMatrix[j][i]);
+    header = 'Lattice="' + flat.map(function (v) { return (+v).toFixed(6); }).join(' ') +
+             '" ' + header;
+  }
+  var lines = [String(n), header];
+  for (var k = 0; k < n; k++) {
+    var p = frame.positions[k];
+    lines.push(frame.symbols[k] + ' ' + (+p[0]).toFixed(6) + ' ' +
+               (+p[1]).toFixed(6) + ' ' + (+p[2]).toFixed(6));
+  }
+  return lines.join('\n') + '\n';
+}
+
+/* -------------------------------------------------------------- drawing */
+function drawCell() {
+  if (!cellMatrix) return;
+  var a = cellMatrix[0], b = cellMatrix[1], c = cellMatrix[2];
+  function corner(i, j, k) {
+    return { x: i*a[0] + j*b[0] + k*c[0],
+             y: i*a[1] + j*b[1] + k*c[1],
+             z: i*a[2] + j*b[2] + k*c[2] };
+  }
+  var v = [];
+  for (var i = 0; i < 2; i++) for (var j = 0; j < 2; j++) for (var k = 0; k < 2; k++)
+    v.push(corner(i, j, k));
+  var edges = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+  for (var e = 0; e < edges.length; e++) {
+    viewer.addLine({ start: v[edges[e][0]], end: v[edges[e][1]],
+                     color: '#c7c7cc', linewidth: 1.6 });
+  }
+}
+
+function drawFixed() {
+  if (!frames.length) return;
+  var frame = frames[current];
+  fixedSet.forEach(function (index) {
+    var p = frame.positions[index];
+    if (!p) return;
+    viewer.addSphere({
+      center: { x: +p[0], y: +p[1], z: +p[2] },
+      radius: FIXED_RADIUS, color: '#111111', wireframe: true, alpha: 1.0
+    });
+  });
+}
+
+function buildScene(keepView) {
+  if (!viewer || !frames.length) return;
+  viewer.removeAllModels();
+  viewer.removeAllShapes();
+  viewer.addModel(xyzOf(frames[current]), 'xyz');
+  viewer.setStyle({}, {
+    sphere: { scale: 0.30, colorscheme: 'Jmol' },
+    stick: { radius: 0.11, colorscheme: 'Jmol' }
+  });
+  drawFixed();
+  drawCell();
+  if (mode === 'atom') setClickable(true);
+  if (keepView) {
+    viewer.render();
+  } else {
+    viewer.zoomTo();   // frames the model but does NOT draw
+    viewer.render();   // ...so always draw explicitly
+  }
+  updateControls();
+}
+
+/* only re-create marker shapes: no model rebuild, so no flicker */
+function redrawShapes() {
+  if (!viewer || !frames.length) return;
+  viewer.removeAllShapes();
+  drawFixed();
+  drawCell();
+  viewer.render();
+}
+
+/* ------------------------------------------------------------- controls */
+function updateControls() {
+  document.getElementById('controls').classList.toggle('show', frames.length > 1);
+  var slider = document.getElementById('slider');
+  slider.max = Math.max(0, frames.length - 1);
+  slider.value = current;
+  document.getElementById('framelabel').textContent =
+    frames.length ? (current + 1) + ' / ' + frames.length : '0 / 0';
+  document.getElementById('play').textContent = playing ? '❚❚' : '▶';
+}
+
+function showFrame(index) {
+  if (!frames.length) return;
+  current = Math.max(0, Math.min(frames.length - 1, index | 0));
+  buildScene(true);
+  updateControls();   // keep slider / label in sync even if the scene cannot rebuild
+  callBridge('frameChanged', current);
+}
+
+function stopPlay() {
+  playing = false;
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  updateControls();
+}
+
+function togglePlay() {
+  if (frames.length < 2) return;
+  if (playing) { stopPlay(); return; }
+  playing = true;
+  updateControls();
+  playTimer = setInterval(function () {
+    current = current + 1 >= frames.length ? 0 : current + 1;
+    buildScene(true);
+    updateControls();
+  }, 420);
+}
+
+/* ----------------------------------------------------------- public API */
+window.setData = function (data) {
+  stopPlay();
+  frames = data.frames || [];
+  cellMatrix = data.cell || null;
+  fixedSet = new Set(data.fixed || []);
+  current = 0;
+  document.getElementById('legend').style.display = fixedSet.size ? 'flex' : 'none';
+  buildScene(false);
+};
+
+window.setFixed = function (list) {
+  fixedSet = new Set(list || []);
+  document.getElementById('legend').style.display = fixedSet.size ? 'flex' : 'none';
+  redrawShapes();
+};
+
+window.setMode = function (m) {
+  mode = m;
+  var hint = document.getElementById('hint');
+  if (m === 'atom') {
+    hint.innerHTML = '<b>点选</b> · 点击原子固定 / 取消固定';
+    setClickable(true);
+    boxMode(false);
+  } else if (m === 'box') {
+    hint.innerHTML = '<b>框选</b> · 拖出矩形，框内原子被固定';
+    setClickable(false);
+    boxMode(true);
+  } else {
+    hint.innerHTML = '拖拽旋转 · 滚轮缩放 · 双击复位';
+    setClickable(false);
+    boxMode(false);
+  }
+};
+
+window.resetView = function () { if (viewer) { viewer.zoomTo(); viewer.render(); } };
+
+/* ------------------------------------------------------------ selection */
+function setClickable(on) {
+  if (!viewer) return;
+  viewer.setClickable({}, !!on, function (atom) {
+    if (!on || mode !== 'atom' || !atom) return;
+    toggleFixed(atom.serial);
+  });
+  // 3Dmol refreshes its hit-test list only inside render()
+  viewer.render();
+}
+
+function toggleFixed(index) {
+  if (index === undefined || index === null) return;
+  if (fixedSet.has(index)) fixedSet.delete(index); else fixedSet.add(index);
+  document.getElementById('legend').style.display = fixedSet.size ? 'flex' : 'none';
+  redrawShapes();
+  callBridge('fixedChanged', Array.from(fixedSet).sort(function (a, b) { return a - b; }));
+}
+
+function boxMode(on) {
+  document.getElementById('overlay').style.display = on ? 'block' : 'none';
+  if (!on) document.getElementById('rect').style.display = 'none';
+}
+
+(function () {
+  var overlay = document.getElementById('overlay');
+  var rect = document.getElementById('rect');
+  var start = null;
+
+  overlay.addEventListener('mousedown', function (e) {
+    if (mode !== 'box') return;
+    e.preventDefault();
+    start = { x: e.pageX, y: e.pageY };
+    rect.style.left = start.x + 'px';
+    rect.style.top = start.y + 'px';
+    rect.style.width = '0px';
+    rect.style.height = '0px';
+    rect.style.display = 'block';
+  });
+
+  overlay.addEventListener('mousemove', function (e) {
+    if (!start) return;
+    var x0 = Math.min(start.x, e.pageX), y0 = Math.min(start.y, e.pageY);
+    var x1 = Math.max(start.x, e.pageX), y1 = Math.max(start.y, e.pageY);
+    rect.style.left = x0 + 'px';
+    rect.style.top = y0 + 'px';
+    rect.style.width = (x1 - x0) + 'px';
+    rect.style.height = (y1 - y0) + 'px';
+  });
+
+  overlay.addEventListener('mouseup', function (e) {
+    if (!start) return;
+    var x0 = Math.min(start.x, e.pageX), y0 = Math.min(start.y, e.pageY);
+    var x1 = Math.max(start.x, e.pageX), y1 = Math.max(start.y, e.pageY);
+    rect.style.display = 'none';
+    start = null;
+    if (x1 - x0 < 3 && y1 - y0 < 3) return;
+    var picked = atomsInRect(x0, y0, x1, y1);
+    if (!picked.length) return;
+    picked.forEach(function (i) { fixedSet.add(i); });
+    document.getElementById('legend').style.display = 'flex';
+    redrawShapes();
+    callBridge('fixedChanged', Array.from(fixedSet).sort(function (a, b) { return a - b; }));
+  });
+
+  overlay.addEventListener('mouseleave', function () {
+    if (start) { rect.style.display = 'none'; start = null; }
+  });
+})();
+
+function atomsInRect(x0, y0, x1, y1) {
+  var out = [];
+  if (!viewer) return out;
+  var atoms = viewer.selectedAtoms({});
+  if (!atoms || !atoms.length) return out;
+  var screen;
+  try { screen = viewer.modelToScreen(atoms); } catch (e) { return out; }
+  for (var i = 0; i < atoms.length; i++) {
+    var p = screen[i];
+    if (!p) continue;
+    if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) {
+      var serial = atoms[i].serial;
+      if (serial === undefined || serial === null) serial = atoms[i].index;
+      if (serial !== undefined && serial !== null) out.push(serial);
+    }
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------- boot */
+document.getElementById('play').addEventListener('click', togglePlay);
+document.getElementById('slider').addEventListener('input', function (e) {
+  // read the dragged value FIRST: stopPlay() runs updateControls(), which
+  // would otherwise reset slider.value to the previous frame.
+  var value = parseInt(e.target.value, 10);
+  if (isNaN(value)) return;
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  playing = false;
+  showFrame(value);   // buildScene() -> updateControls() refreshes slider + label
+});
+
+function boot() {
+  if (typeof $3Dmol === 'undefined') {
+    showError('无法加载 3D 渲染库（3Dmol.js）。<br>请确认 3Dmol-min.js 位于项目根目录。');
+    return;
+  }
+  try {
+    viewer = $3Dmol.createViewer(document.getElementById('viewer'), {
+      backgroundColor: '#ffffff', antialias: true, orthographic: true
+    });
+  } catch (e) {
+    viewer = null;
+  }
+  if (!viewer) {
+    showError('无法初始化 3D 视图（WebGL 不可用）。<br>请更新显卡驱动，或检查是否禁用了硬件加速。');
+    return;
+  }
+  // use an orthographic (parallel) projection instead of perspective
+  try { viewer.setProjection('orthographic'); } catch (e) {}
+  document.getElementById('viewer').addEventListener('dblclick', function () {
+    viewer.zoomTo();
+    viewer.render();
+  });
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(function () {
+      if (!viewer) return;
+      try { viewer.resize(); } catch (e) {}
+      viewer.render();
+    }).observe(document.getElementById('viewer'));
+  }
+  updateControls();
+  if (frames.length) buildScene(false);   // data may have arrived before load
+}
+
+if (document.readyState === 'complete') {
+  boot();
+} else {
+  window.addEventListener('load', boot);
+}
+</script>
+</body>
+</html>
