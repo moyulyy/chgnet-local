@@ -1,12 +1,20 @@
 """ChgNet Studio - entry point.
 
 A local desktop GUI (PySide6 + QtWebEngine + 3Dmol.js + ASE) that drives the
-bundled ChgNetCalculater command line scripts through the chem_env Python
-interpreter.
+bundled ChgNetCalculater command line scripts through a separate Python
+interpreter that has chgnet + torch installed.
 
-Run with::
+Run with the bundled launcher (it auto-detects the compute environment)::
 
-    D:\\miniconda3\\envs\\chem_env\\python.exe main.py
+    run.bat
+
+or with any Python that has the GUI dependencies installed::
+
+    python main.py
+
+The compute interpreter is resolved from ``CHGNET_PYTHON``, the saved setting,
+or an auto-detected conda environment named ``CHGNET_ENV`` (default chem_env);
+see ``app/config.py`` and the README's "安装与配置" section.
 """
 
 from __future__ import annotations

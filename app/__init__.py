@@ -2,7 +2,8 @@
 
 The GUI never imports torch / chgnet itself: every calculation is delegated
 to the existing command line scripts inside ``ChgNetCalculater/`` and runs in
-the configured conda environment (``D:\\miniconda3\\envs\\chem_env``).
+a separately configured conda environment (auto-detected, or set through the
+``CHGNET_PYTHON`` / ``CHGNET_ENV`` environment variables).
 """
 
 __version__ = "1.0.0"

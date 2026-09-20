@@ -1,9 +1,41 @@
 # ChgNet Studio
 
-一个 **本地桌面 GUI**，把 `ChgNetCalculater/` 里已有的 CHGNet 机器学习势命令行
-脚本包装成 iOS / macOS 风格的可视化计算工作台：无边框圆角窗口、红黄绿控制按钮、
-三栏卡片布局、3Dmol.js 三维结构可视化，并通过 **`D:\miniconda3\envs\chem_env`**
-解释器在后台以子进程方式调用 CHGNet 计算器。
+> 面向 Windows 的本地桌面 GUI，把 [`ChgNetCalculater/`](ChgNetCalculater) 里的 CHGNet
+> 机器学习势命令行脚本包装成一个可视化计算工作台。
+
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![GUI](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
+![Viewer](https://img.shields.io/badge/viewer-3Dmol.js-1E90FF)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+无边框圆角窗口、红黄绿控制按钮、三栏卡片布局、3Dmol.js 三维结构可视化。
+所有计算都在**独立配置的 Python 环境**中以后台子进程方式运行，
+**不写死任何机器相关的路径**——换一台电脑克隆下来也能直接跑起来。
+
+---
+
+## 目录
+
+- [界面预览](#界面预览)
+- [快速开始（TL;DR）](#快速开始tldr)
+- [安装与配置](#安装与配置)
+  - [0. 需要两个 Python 环境](#0-需要两个-python-环境)
+  - [1. 获取代码](#1-获取代码)
+  - [2. 准备计算环境](#2-准备计算环境)
+  - [3. 让 ChgNet Studio 找到你的计算环境](#3-让-chgnet-studio-找到你的计算环境)
+  - [4. 安装 GUI 依赖](#4-安装-gui-依赖)
+  - [5. 启动](#5-启动)
+- [计算项目](#计算项目)
+- [使用流程](#使用流程)
+- [功能要点](#功能要点)
+- [目录结构](#目录结构)
+- [常见问题](#常见问题)
+- [许可](#许可)
+
+---
+
+## 界面预览
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
@@ -25,53 +57,150 @@
 
 ---
 
-## 快速开始
-
-双击项目根目录下的 **`run.bat`**，或在命令行运行：
+## 快速开始（TL;DR）
 
 ```bat
-D:\miniconda3\envs\chem_env\python.exe main.py
+:: 1. 已有一个装了 chgnet + CUDA 版 torch 的 conda 环境（默认名 chem_env）
+::    如果环境名不同，设置 CHGNET_ENV；路径特殊则直接设 CHGNET_PYTHON
+set CHGNET_ENV=chem_env
+:: set CHGNET_PYTHON=D:\some\env\python.exe
+
+:: 2. 安装 GUI 依赖（装进同一个环境即可）
+pip install -r requirements.txt
+
+:: 3. 双击 run.bat，或在命令行运行
+run.bat
 ```
 
-GUI 本身只依赖 `PySide6 / numpy / ase`（chem_env 已具备）；真正的计算在子进程中
-由 chem_env 的 `chgnet / torch / pymatgen` 完成。**GUI 进程不会导入 torch / chgnet**，
-因此启动很快。
+`run.bat` 会**自动探测**本机的 conda / Python 环境，找不到时才提示你手动指定，
+不会再因为写死 `D:\miniconda3\envs\chem_env\python.exe` 而报错。
 
-> 解释器与脚本目录会自动探测（默认 `D:\miniconda3\envs\chem_env\python.exe`
-> 与本项目下的 `ChgNetCalculater/`），最近使用的目录保存在 `~/.chgnet_studio.json`。
+---
 
-### 安装依赖
+## 安装与配置
 
-GUI 本身只需要 PySide6 / numpy / ase：
+### 0. 需要两个 Python 环境
+
+| 角色 | 需要安装 | 说明 |
+| --- | --- | --- |
+| **GUI 进程** | `PySide6`、`numpy`、`ase` | 负责界面与 3D 显示，**不导入** torch / chgnet，启动很快 |
+| **计算进程** | `chgnet`、`torch`(CUDA)、`pymatgen`、`matplotlib` | 真正跑计算的解释器，由 GUI 以子进程方式调用 |
+
+> 两者**可以是同一个环境**（推荐的 `chem_env`），也可以分开。GUI 只通过
+> `python.exe` 的子进程调用计算脚本，因此计算环境里的依赖不会影响 GUI 启动速度。
+
+### 1. 获取代码
+
+```bat
+git clone https://github.com/moyulyy/chgnet-local.git
+cd chgnet-local
+```
+
+### 2. 准备计算环境
+
+推荐直接用 conda 新建一个名为 `chem_env` 的环境（名字可在第 3 步改）：
+
+```bat
+conda create -n chem_env python=3.10 -y
+conda activate chem_env
+
+:: torch 必须是 CUDA 版，不能是 CPU 版！按显卡驱动选择轮子（示例 CUDA 12.1）
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+:: 其余计算依赖
+pip install chgnet pymatgen matplotlib ase
+
+:: 自检：必须输出 True
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+> **为什么要强调 CUDA 版 torch？**
+> 所有计算任务都固定使用 CUDA。Windows 上直接 `pip install torch`
+> 常常装成 **CPU 版**，会导致任务报错，或悄悄退回 CPU 而极慢。
+>
+> 其他 CUDA 版本把 `cu121` 换成对应值（如 `cu118`、`cu124`），
+> 最新命令见 <https://pytorch.org/get-started/locally/>。
+> 若自检输出 `False`，先 `pip uninstall -y torch` 再用 CUDA 索引重装。
+
+### 3. 让 ChgNet Studio 找到你的计算环境
+
+**不需要修改任何源码。** 解释器按以下顺序解析，第一个存在的即被采用：
+
+| 优先级 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | 环境变量 `CHGNET_PYTHON` | 直接指定 `python.exe` 完整路径，最明确 |
+| 2 | `~/.chgnet_studio.json` 中的 `python_exe` | GUI 自己的配置项（默认留空＝自动探测） |
+| 3 | 环境变量 `CONDA_PREFIX` | 当前已被 `conda activate` 的环境 |
+| 4 | `CHGNET_ENV`（默认 `chem_env`） | 在常见 conda 安装目录下搜索 `envs\<名字>\python.exe` |
+| 5 | 本机 `D:\miniconda3\envs\chem_env\python.exe` | 开发机遗留路径，仅作兜底 |
+| 6 | 当前运行 GUI 的解释器 | 最终兜底 |
+
+对应两种常见改法：
+
+**A. 环境名不是 `chem_env`** —— 设置 `CHGNET_ENV`：
+
+```bat
+set CHGNET_ENV=my_chgnet_env
+run.bat
+```
+
+**B. 环境在非常规位置** —— 直接指定解释器：
+
+```bat
+set CHGNET_PYTHON=C:\Users\you\anaconda3\envs\chem_env\python.exe
+run.bat
+```
+
+> `run.bat` 与 `app/config.py` 使用**同一套**解析顺序，因此从命令行启动、
+> 双击启动、或在 GUI 内计算，都会指向同一个环境。
+>
+> 想让设置永久生效：把 `CHGNET_PYTHON` 加到系统环境变量，或编辑
+> `%USERPROFILE%\.chgnet_studio.json`：
+>
+> ```json
+> {
+>   "python_exe": "C:\\Users\\you\\miniconda3\\envs\\chem_env\\python.exe"
+> }
+> ```
+
+`ChgNetCalculater/` 下附带的独立 `*.bat` 小脚本同样会优先读取
+`CHGNET_PYTHON`，然后才回退到旧路径。
+
+### 4. 安装 GUI 依赖
+
+GUI 只依赖 `PySide6 / numpy / ase`。装进计算环境即可（也可以另建环境）：
 
 ```bat
 pip install -r requirements.txt
 ```
 
-计算引擎（chgnet / torch / pymatgen）必须安装在**运行计算脚本的解释器**中。其中
-**torch 必须是 CUDA 版本，不能是 CPU 版本**——所有计算任务都固定使用 CUDA，
-CPU 版 torch 会导致任务报错或退回 CPU 而极慢。Windows 上直接 `pip install torch`
-默认常常装成 **CPU 版**，因此请从 PyTorch 的 CUDA 索引安装：
+### 5. 启动
+
+双击项目根目录的 **`run.bat`**，或：
 
 ```bat
-rem 1) 按显卡驱动选择对应的 CUDA 轮子（示例为 CUDA 12.1）
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-rem 2) 安装其余引擎依赖
-pip install chgnet pymatgen matplotlib
-rem 3) 自检：必须输出 True
-python -c "import torch; print(torch.cuda.is_available())"
+run.bat
 ```
 
-> 其他 CUDA 版本把 `cu121` 换成对应值（如 `cu118`、`cu124`），
-> 最新命令见 <https://pytorch.org/get-started/locally/>。
-> 若自检输出 `False`，说明装的是 CPU 版，请先 `pip uninstall -y torch`
-> 再用上面的 CUDA 索引重装。
+也可以直接手动指定解释器启动：
+
+```bat
+D:\path\to\env\python.exe main.py
+```
+
+启动后 GUI 会打印实际使用的解释器与脚本目录，便于排查：
+
+```
+ChgNet Studio 已启动
+Python  : D:\...\envs\chem_env\python.exe
+脚本目录: ...\chgnet-local\ChgNetCalculater
+```
 
 ---
 
 ## 计算项目
 
-界面左侧列出 5 个计算任务，全部复用 `ChgNetCalculater/` 下的原始脚本：
+界面左侧列出 5 个计算任务，全部复用 `ChgNetCalculater/` 下的原始 `.py` 脚本：
 
 | 项目 | 调用脚本 | 关键参数 |
 | --- | --- | --- |
@@ -81,7 +210,7 @@ python -c "import torch; print(torch.cuda.is_available())"
 | 振动频率计算 | `chgnet-freq/main.py` | `--delta`、`--nfree`(2/4)、`--temperature` |
 | NEB 过渡态搜索 | `chgnet-neb/main.py` | IS/插点/FS 路径、`--fmax`、`--max-steps`、`--spring-constant`、climb |
 
-> 所有任务统一使用 **CUDA**（界面不再提供设备选项）；请确保 chem_env 中的 torch 是
+> 所有任务统一使用 **CUDA**（界面不再提供设备选项）；请确保计算环境中的 torch 是
 > **CUDA 版本**而非 CPU 版本（`python -c "import torch; print(torch.cuda.is_available())"`
 > 必须为 `True`）。
 
@@ -102,12 +231,11 @@ NEB **不需要单独选择初态 / 末态**，只需给出包含 **连续编号
 （`02` 在 `10` 之前）。
 
 加载后所有图像作为一条轨迹显示在中间视图中，拖动视图下方 **进度条即可逐帧预览**
-（第 1 张=IS，最后一张=FS）。开始计算时程序把每个图像重写为
+（第 1 张＝IS，最后一张＝FS）。开始计算时程序把每个图像重写为
 `00/POSCAR … NN/POSCAR` 到本次任务目录再调用 CHGNet-NEB（不修改原目录）；
 若原目录编号不从 `00` 开始也无需处理，重写时会自动从 `00` 开始连续编号。
 
-计算过程中，3D 视图下方的状态栏会**实时刷新每一步**的受力、TS 对应帧与能垒 Ea，
-例如：
+计算过程中，3D 视图下方的状态栏会**实时刷新每一步**的受力、TS 对应帧与能垒 Ea：
 
 ```
 NEB 第 12 步   ·   受力 maxF = 0.0345 eV/Å   ·   TS 帧 = 04   ·   能垒 Ea = 0.5123 eV
@@ -117,7 +245,8 @@ NEB 第 12 步   ·   受力 maxF = 0.0345 eV/Å   ·   TS 帧 = 04   ·   能�
 
 ## 使用流程
 
-1. **打开结构**：右侧「输入结构」→ **打开结构**，选择 `cif / POSCAR / CONTCAR / xsdf / XDATCAR`。
+1. **打开结构**：右侧「输入结构」→ **打开结构**，选择
+   `cif / POSCAR / CONTCAR / xsdf / XDATCAR`。
    `XDATCAR` 会作为轨迹载入，可用底部滑块逐帧播放。
 2. **（可选）固定原子**：把中间视图切到 **点选** 或 **框选**，固定原子以黑色网格球显示。
    参数面板中「已固定原子」旁有 **取消全部固定** 按钮，可一键清除所有约束。
@@ -143,9 +272,13 @@ NEB 第 12 步   ·   受力 maxF = 0.0345 eV/Å   ·   TS 帧 = 04   ·   能�
     OSZICAR / XDATCAR / OUTCAR / relax.pkl
 ```
 
-各任务的产物：单点能 → `CONTCAR/OSZICAR/OUTCAR`；弛豫 → 上述加 `XDATCAR/relax.pkl`；
-AIMD → 上述加 `log.dat/md_out.traj/md_out.log`；频率 → `FREQ_RESULTS/zpe-ts.dat/vib_summary.txt`；
-NEB → `NEB_RESULTS/neb_profile.png/neb_final.traj` 及每个图像目录的 `CONTCAR` 等。
+各任务的产物：
+
+- **单点能** → `CONTCAR / OSZICAR / OUTCAR`
+- **结构弛豫** → 上述加 `XDATCAR / relax.pkl`
+- **AIMD** → 上述加 `log.dat / md_out.traj / md_out.log`
+- **频率** → `FREQ_RESULTS / zpe-ts.dat / vib_summary.txt`
+- **NEB** → `NEB_RESULTS / neb_profile.png / neb_final.traj` 及每个图像目录的 `CONTCAR`
 
 ---
 
@@ -163,6 +296,8 @@ NEB → `NEB_RESULTS/neb_profile.png/neb_final.traj` 及每个图像目录的 `C
 - **格式支持**：统一经 ASE 读取 `cif / POSCAR / CONTCAR / xsd / XDATCAR`，
   发送计算前一律写成 VASP `POSCAR`。文件名与目录名可包含 `@` 等特殊字符
   （已关闭 ASE 按 `@` 切分“文件名@索引”的行为）。
+- **免配置路径**：解释器 / 脚本目录自动探测，支持 `CHGNET_PYTHON` /
+  `CHGNET_ENV` 环境变量覆盖，不在源码里写死任何机器路径。
 
 ---
 
@@ -170,17 +305,18 @@ NEB → `NEB_RESULTS/neb_profile.png/neb_final.traj` 及每个图像目录的 `C
 
 ```
 chgnet-local/
-├── run.bat                     # Windows 启动脚本（优先使用 chem_env）
+├── run.bat                     # Windows 启动器（自动探测 Python 环境）
 ├── main.py                     # 程序入口
-├── requirements.txt
+├── requirements.txt            # GUI 与计算依赖说明
 ├── README.md
-├── 3Dmol-min.js                # 3D 渲染库（本地）
+├── LICENSE
+├── 3Dmol-min.js                # 3D 渲染库（本地，无需联网）
 ├── assets/
 │   ├── app.ico / app.png       # 应用图标
 │   └── make_icon.py            # 图标生成脚本
 ├── viewer/
 │   └── viewer.html             # 3Dmol 页面：点选 / 框选 / 播放 + QWebChannel
-├── ChgNetCalculater/           # 原有 CHGNet 计算脚本（不修改）
+├── ChgNetCalculater/           # CHGNet 计算脚本（.py 原样保留）
 │   ├── chgnet-opt/             # 单点 / 弛豫
 │   ├── chgnet-aimd/            # 分子动力学
 │   ├── chgnet-freq/            # 振动频率
@@ -196,36 +332,67 @@ chgnet-local/
     ├── panels.py               # 项目列表、参数表单、结果 / 日志视图
     ├── workers.py              # QThread：建任务目录、跑子进程、汇总结果
     ├── main_window.py          # 主窗口与任务调度
-    └── config.py               # 配置持久化（解释器 / 脚本目录 / 默认参数）
+    └── config.py               # 配置持久化 + 解释器自动探测
 ```
 
 ---
 
 ## 常见问题
 
-**Q: 提示「环境未就绪」？**
-程序会自动探测计算环境：请确认 `D:\miniconda3\envs\chem_env\python.exe` 存在，
-且本项目目录下包含 `ChgNetCalculater/` 脚本文件夹。
+**Q: 启动时报「环境未就绪」或找不到 Python？**
+
+程序会按[第 3 步](#3-让-chgnet-studio-找到你的计算环境)的顺序自动探测计算环境。
+若失败，请任选其一：
+
+```bat
+:: 指定解释器完整路径
+set CHGNET_PYTHON=C:\Users\you\miniconda3\envs\chem_env\python.exe
+
+:: 或告诉程序环境叫什么名字
+set CHGNET_ENV=my_chgnet_env
+```
+
+并确认项目目录下存在 `ChgNetCalculater/` 脚本文件夹。
 
 **Q: 计算报 CUDA 相关错误？**
-所有任务都固定使用 CUDA，请确认 chem_env 里装的是 **CUDA 版 torch**（不是 CPU 版）：
+
+所有任务都固定使用 CUDA，请确认计算环境里装的是 **CUDA 版 torch**（不是 CPU 版）：
 
 ```bat
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-若输出 `False`，请卸载 CPU 版后从 CUDA 索引重装，例如 CUDA 12.1：
+若输出 `False`，卸载 CPU 版后从 CUDA 索引重装（示例 CUDA 12.1）：
 
 ```bat
 pip uninstall -y torch
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 
+**Q: 提示 `No module named 'PySide6'` / `numpy` / `ase`？**
+
+GUI 依赖没有装进启动解释器。在对应环境里执行：
+
+```bat
+pip install -r requirements.txt
+```
+
 **Q: 振动频率任务报 `assert nfree in [2, 4]`？**
+
 ASE 要求 `nfree` 只能取 2 或 4，界面已限定为这两个取值。
 
 **Q: 3D 区域空白？**
+
 确认项目根目录存在 `3Dmol-min.js`；无 GPU 时 Chromium 会回退软件渲染。
 
 **Q: 如何中断长时间任务？**
+
 点击「取消」，程序会终止对应的子进程；已完成的部分产物仍保留在任务目录中。
+
+---
+
+## 许可
+
+本项目基于 [MIT License](LICENSE) 发布。
+
+计算脚本所属的 CHGNet 及相关库遵循各自的开源许可。

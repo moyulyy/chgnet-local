@@ -23,9 +23,11 @@
 - **界面**：PySide6（Qt 6）+ QtWebEngine，无边框圆角窗口、三栏卡片布局。
 - **三维可视化**：3Dmol.js 渲染，支持旋转 / 点选 / 框选固定原子。
 - **结构 I/O**：ASE 负责解析与写出，统一转换为 POSCAR 供计算使用。
-- **计算解耦**：GUI 进程不导入 torch / chgnet，计算在 `chem_env` 解释器下以
+- **计算解耦**：GUI 进程不导入 torch / chgnet，计算在单独配置的解释器下以
   子进程方式运行，界面保持快速启动。
-- **硬件**：所有任务固定使用 **CUDA**，要求 `chem_env` 安装 **CUDA 版 torch**。
+- **可移植**：不写死任何机器路径；计算环境自动探测，可用 `CHGNET_PYTHON` /
+  `CHGNET_ENV` 环境变量覆盖。
+- **硬件**：所有任务固定使用 **CUDA**，要求计算环境安装 **CUDA 版 torch**。
 
 ## 快速开始
 
@@ -33,5 +35,6 @@
 run.bat
 ```
 
-GUI 依赖见 `requirements.txt`；计算引擎需在 `chem_env` 中安装
-`chgnet / torch(CUDA) / pymatgen`。详见 `README.md`。
+GUI 依赖见 `requirements.txt`；计算引擎需装在计算环境的解释器中
+（`chgnet / torch(CUDA) / pymatgen`），环境名或路径通过
+`CHGNET_ENV` / `CHGNET_PYTHON` 指定。详见 `README.md` 的「安装与配置」。

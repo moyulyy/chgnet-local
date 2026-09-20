@@ -1,8 +1,9 @@
 # ChgNet Studio runtime dependencies.
 #
-# The GUI itself only needs PySide6 / numpy / ase.  These are already provided
-# by the recommended conda environment (D:\miniconda3\envs\chem_env); they are
+# The GUI itself only needs PySide6 / numpy / ase.  They are usually already
+# provided by the compute conda environment (default name: chem_env); they are
 # listed here in case the GUI is installed into a separate environment.
+# Set CHGNET_PYTHON (or CHGNET_ENV) to point the GUI at your environment.
 #
 #     pip install -r requirements.txt
 #
@@ -14,7 +15,8 @@ ase>=3.22
 # Calculation engine
 # ===========================================================================
 # Only needed in the interpreter that actually runs the ChgNetCalculater
-# scripts (i.e. chem_env).  The GUI process never imports torch/chgnet.
+# scripts (the configured compute environment).  The GUI never imports
+# torch/chgnet.
 #
 # !!! IMPORTANT: torch MUST be the CUDA build, never the CPU-only build !!!
 #

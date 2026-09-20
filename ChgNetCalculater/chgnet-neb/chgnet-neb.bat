@@ -1,6 +1,8 @@
 @echo off
 chcp 65001 >nul
-set "PYTHON_EXE=D:\miniconda3\envs\chem_env\python.exe"
+rem %CHGNET_PYTHON% overrides the default; otherwise use the original path
+set "PYTHON_EXE=%CHGNET_PYTHON%"
+if not defined PYTHON_EXE set "PYTHON_EXE=D:\miniconda3\envs\chem_env\python.exe"
 set "SCRIPT_PATH=%~dp0main.py"
 set "WORKDIR=%CD%"
 if not exist "%PYTHON_EXE%" (
